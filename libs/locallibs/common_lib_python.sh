@@ -88,8 +88,14 @@ function DNF_INSTALL() {
     #多节点初始系统环境相同，本地和远端安装的包，在任何节点不不应该存在
     [ -z "$tmpfile" ] && tmpfile=""
 
-    tmpfile2=$(python3 ${OET_PATH}/libs/locallibs/rpm_manage.py \
-        install --pkgs "$pkgs" --node $node --tempfile "$tmpfile")
+    cat /etc/os-release | grep Eulaceura > /dev/null
+    if [ $? -eq 0 ]; then
+        tmpfile2=$(python3 ${OET_PATH}/libs/locallibs/rpm_manage_eula.py \
+            install --pkgs "$pkgs" --node $node --tempfile "$tmpfile")
+    else
+        tmpfile2=$(python3 ${OET_PATH}/libs/locallibs/rpm_manage.py \
+            install --pkgs "$pkgs" --node $node --tempfile "$tmpfile")
+    fi
 
     [ -z "$tmpfile" ] && tmpfile=$tmpfile2
 }
@@ -166,4 +172,10 @@ function SLEEP_WAIT() {
     cmd=$2
     mode=${3-1}
     python3 ${OET_PATH}/libs/locallibs/sleep_wait.py --time $wait_time --cmd "$cmd" --mode $mode
+}
+
+function CHECK_ENV() {
+    suite_json=$1
+    test_case=$2
+    python3 "${OET_PATH}"/libs/locallibs/check_environment.py --suite_file "$suite_json" --case "$test_case"
 }

@@ -39,6 +39,9 @@ def get_test_nic(node=1):
         [str]: 网卡名
     """
     exitcode, tmpfile = rpm_manage.rpm_install(pkgs="lshw", node=node)
+    if os.system('cat /etc/os-release | grep Eulaceura > /dev/null') == 0:
+        import rpm_manage_eula
+        exitcode, tmpfile = rpm_manage_eula.rpm_install(pkgs="lshw", node=node)
     if exitcode != 0:
         mugen_log.logging(
             "error",
