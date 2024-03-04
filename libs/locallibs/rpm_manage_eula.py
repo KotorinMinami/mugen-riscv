@@ -85,7 +85,7 @@ def rpm_install(pkgs, node=1, tmpfile=""):
     
     depCode , depList = func(conn=conn, cmd="zypper install -y -d --no-recommends "
                             + pkgs
-                            + ' | grep -A 1000 "NEW packages are going to be installed:" | grep -E "^ "'
+                            + ' | grep -A 1000 "going to be installed:" | grep -E "^ "'
     )
 
     if depCode != 0:

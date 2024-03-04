@@ -99,7 +99,7 @@ class TestTarget():
     Test targets
     """
 
-    def __init__(self,test_list=[]):
+    def __init__(self,test_list = [] , list_file_name=None):
         self.is_checked = 0
         self.is_tested = 0
         self.test_list = test_list
@@ -107,6 +107,16 @@ class TestTarget():
 
         self.success_test_num = []
         self.failed_test_num = []
+
+        if list_file_name is not None:
+            list_file = open(list_file_name,'r')
+            raw = list_file.read()
+            self.test_list = raw.split(sep="\n")
+            list_file.close()
+
+            self.test_list = [x.strip() for x in self.test_list if x.strip()!='']  #Remove empty elements
+            self.test_list = [x.replace("-riscv","") for x in self.test_list]      #Remove -riscv suffix
+
 
     def PrintTargetNum(self):
         print("total test targets num = "+str(len(self.test_list)))
@@ -180,6 +190,7 @@ class TestTarget():
                         os.system("sudo bash mugen.sh -f "+test_target+" -r "+testcase+" -x 2>&1 | tee -a exec.log")
                     else:
                         os.system("sudo bash mugen.sh -f "+test_target+" -r "+testcase+" 2>&1 | tee -a exec.log")
+
                     if os.path.exists('./logs_failed/'+test_target+'/'+testcase):
                         try:
                             for log in  os.listdir('logs_failed/'+test_target+'/'+testcase):
@@ -289,7 +300,7 @@ if __name__ == "__main__":
             if not isinstance(json_info, dict):
                 LogError(f'{args.combination} json file forment fail')
             if "combination" not in json_info:
-                LogInfo(f'{combination} do not have combination part, script will do noting')
+                LogInfo(f'{args.combination} do not have combination part, script will do noting')
             combination_dict = combination.generate_combination_testsuit(json_info["combination"], 'riscv_')
             test_list.extend([testcase['testsuite'] for testcases in json_info["combination"] for testcase in testcases['testcases']])
             test_list = [test+'_0' for test in test_list]
@@ -315,10 +326,10 @@ if __name__ == "__main__":
             gen.GenJson(test_res)
         
         if args.output_dir != '':
-            os.system('ls logs_failed && /bin/cp -rf logs '+args.output_dir)
-            os.system('ls logs_failed && /bin/cp -rf logs_failed '+args.output_dir)
-            os.system('ls suite2cases_out && /bin/cp -rf suite2cases_out '+args.output_dir)
-            os.system('ls exec.log && /bin/cp -rf exec.log '+args.output_dir)
+            os.system(f'ls logs > /dev/null && /bin/cp -rf logs {args.output_dir}')
+            os.system(f'ls logs_failed > /dev/null && /bin/cp -rf logs_failed {args.output_dir}')
+            os.system(f'ls suite2cases_out > /dev/null && /bin/cp -rf suite2cases_out {args.output_dir}')
+            os.system(f'ls exec.log > /dev/null && /bin/cp -rf exec.log {args.output_dir} ')
         if args.combination is not None and os.path.exists('./temp_suite2cases'):
             os.system('rm -rf ./suite2cases')
             os.system('mv ./temp_suite2cases ./suite2cases')

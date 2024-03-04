@@ -1,14 +1,18 @@
 from dataclasses import replace
 import os
+import sys
 import argparse
 from socket import timeout
 import time
 import paramiko
-from libs.locallibs.mugen_riscv import TestEnv,TestTarget
 from queue import Queue
-from libs.locallibs import sftp,ssh_cmd,mugen_log
 from threading import Thread
 import json
+
+os.environ['OET_PATH'] = os.path.split(os.path.realpath(__file__))[0]
+
+from libs.locallibs import sftp,ssh_cmd,mugen_log
+from libs.locallibs.mugen_riscv import TestEnv,TestTarget
 from qemuVM import QemuVM
 from combination_parser import combination
 
@@ -103,7 +107,7 @@ class Dispatcher(Thread):
                 except:
                     break
 
-            tapnum , eachnum = 0 , 0
+            tapnum , eachnum = 0 , 1
             if target[2] > 1 and self.runArg.find('multiMachine') != -1:
                 if target[3] > 0 and self.runArg.find('addNic') != -1:
                     tapnum = target[2]*(target[3]+1)
@@ -114,7 +118,7 @@ class Dispatcher(Thread):
             else:
                 if target[3] > 0 and self.runArg.find('addNic') != -1:
                     tapnum = target[3]
-                    eachnum = tapnum
+                    eachnum = tapnum+1
 
             if tapnum > self.tapQueue.qsize():
                 self.targetQueue.put(target)
@@ -132,8 +136,7 @@ class Dispatcher(Thread):
                     self.attachVM[i-1].start(disk=target[1],machine=target[2],tap_number=eachnum,taplist=[self.tapQueue.get() for i in range(eachnum)])
                     self.attachVM[i-1].waitReady()
                     self.attachVM[i-1].conftap(br_ip = self.br_ip)
-                if target[2] > 1 and self.runArg.find('multiMachine') != -1:
-                    self.qemuVM.conftap(br_ip = self.br_ip , tapnode = ['.'.join(self.br_ip.split(".")[:-1]+[str(self.attachVM[i].id+1)]) for i in range(target[2]-1)])
+                self.qemuVM.conftap(br_ip = self.br_ip , tapnode = ['.'.join(self.br_ip.split(".")[:-1]+[str(self.attachVM[i].id+1)]) for i in range(target[2]-1)])
                 try:
                     runTest(self.qemuVM , target[0] , self.runArg)
                 except:
@@ -156,7 +159,6 @@ class Dispatcher(Thread):
             
 
 
-        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -168,18 +170,21 @@ if __name__ == "__main__":
     parser.add_argument('-m','--mugen',action='store_true',help='Run native mugen test suites')
     parser.add_argument('--user',type=str,default=None,help='Specify user')
     parser.add_argument('--password',type=str,default=None,help='Specify password')
+    parser.add_argument('-A', type=str, choices=['riscv64', 'x86_64'], default='riscv64',
+                        help='Specify the qemu architecture', dest='qemuArch')
     parser.add_argument('-B',type=str,help='Specify bios')
-    parser.add_argument('-K',type=str,help='Specify kernel')
     parser.add_argument('-U',type=str,help='Specify UEFI pflash')
+    parser.add_argument('-K',type=str,help='Specify kernel')
+    parser.add_argument('-I',type=str,help='Specify initrd')
     parser.add_argument('-D',type=str,help='Specify backing file name')
-    parser.add_argument('-d',type=str,help='Specity mugen installed directory',dest='mugenDir')
+    parser.add_argument('-d',type=str,help='Specify mugen installed directory',dest='mugenDir')
     parser.add_argument('-g','--generate',action='store_true',default=False,help='Generate testsuite json after running test')
     parser.add_argument('--detailed',action='store_true',default=False,help='Print detailed log')
     parser.add_argument('--addDisk',action='store_true',default=False)
     parser.add_argument('--multiMachine',action='store_true',default=False)
     parser.add_argument('--addNic',action='store_true',default=False)
-    parser.add_argument('--bridge_ip' , type=str , help='Specity the network bridge ip')
-    parser.add_argument('-t',type=int,default=0,help='Specity the number of generated free tap')
+    parser.add_argument('--bridge_ip', type=str, help='Specify the network bridge ip')
+    parser.add_argument('-t', type=int, default=0, help='Specify the number of generated free tap')
     parser.add_argument('--qemu_option',type=str,default='',help='qemu option in command line')
     parser.add_argument('-a',type=str,default='riscv64',help='specity the qemu arch')
     parser.add_argument('-initrd',type=str,help='Specity the initrd file')
@@ -198,14 +203,15 @@ if __name__ == "__main__":
     runningArg = ''
     mugenNative , generateJson , preImg , genList = False , False , False , False
     list_file , workingDir , bkFile , orgDrive , mugenPath = None , None , None , None , None
-    kernel , bios , initrd , pflash = None , None , None , None
+    arch = 'riscv64'
+    kernel, initrd, bios, pflash = None, None, None, None
     img_base = 'img_base.qcow2'
     detailed = False
     user , password = "root","openEuler12#$"
     addDisk, multiMachine, addNic = False,False,False
-    screen = False
     qemu_option , qemu_arch = '' , 'riscv64'
     bridge_ip = None
+    screen = False
     tap = Queue()
     mirror='https://gitee.com/openeuler/mugen.git'
     
@@ -272,7 +278,14 @@ if __name__ == "__main__":
         if configData.__contains__('tap num') and type(configData['tap num'])==int:
             for i in range(configData['tap num']):
                 tap.put('tap'+str(i))
-        if configData.__contains__('workingDir') and (configData.__contains__('bios') or configData.__contains__('kernel')) and configData.__contains__('drive'):
+        if configData.__contains__('useScreen') and configData['useScreen'] == 1:
+            screen = True
+        if configData.__contains__('qemuArch') and type(configData['qemuArch']) == str:
+            arch = configData['qemuArch']
+            if arch not in ['riscv64', 'x86_64']:
+                print("Unsupported qemu architecture " + arch)
+                exit(-1)
+        if configData.__contains__('workingDir') and (configData.__contains__('bios') or configData.__contains__('kernel') or configData.__contains__('pflash')) and configData.__contains__('drive'):
             if configData.__contains__('bios') and type(configData['bios']) == str:
                 bios = configData['bios']
             if configData.__contains__('kernel') and type(configData['kernel']) == str:
@@ -289,6 +302,15 @@ if __name__ == "__main__":
             else:
                 print('Invalid drive file!')
                 exit(-1)
+            if configData.__contains__('bios') and type(configData['bios']) == str:
+                bios = configData['bios']
+            if configData.__contains__('pflash') and type(configData['pflash']) == str:
+                pflash = configData['pflash']
+            if configData.__contains__('kernel') and type(configData['kernel']) == str:
+                kernel = configData['kernel']
+            if configData.__contains__('initrd') and type(configData['initrd']) == str:
+                initrd = configData['initrd']
+
             if configData.__contains__('mugenDir'):
                 preImg = False
                 bkFile = orgDrive
@@ -359,12 +381,13 @@ if __name__ == "__main__":
         if args.screen:
             screen = True
 
-        if args.w != None and (args.B != None or args.K !=None) and args.D != None:
+        if args.w != None and (args.B != None or args.K != None or args.U != None) and args.D != None:
             workingDir = args.w
             orgDrive = args.D
             bios = args.B
-            kernel = args.K
             pflash = args.U
+            kernel = args.K
+            initrd = args.I
             if args.mugenDir != None:
                 preImg = False
                 bkFile = orgDrive
@@ -387,12 +410,19 @@ if __name__ == "__main__":
             print('Please specify working directory and bios or kernel and drive file!')
             exit(-1)
 
+    if screen and os.system("screen -v >/dev/null") != 0:
+        print("screen command not found")
+        exit(-1)
+    else:
+        os.system('for i in $(screen -ls | grep mugenss | sed "s/.*\(mugenss[0-9]*\).*/\\1/"); do screen -X -S $i quit; done')
+
     if preImg == True or genList == True:
         if preImg == True and (bkFile not in os.listdir(workingDir)):
             res = os.system('qemu-img create -f qcow2 -F qcow2 -b '+workingDir+orgDrive+' '+workingDir+bkFile)
             if res != 0:
                 print('Failed to create img-base')
                 exit(-1)
+
 
         preVM = QemuVM(id=1,user=user,password=password,
                        kernel=kernel,bios=bios,initrd=initrd,pflash=pflash,
@@ -467,7 +497,7 @@ if __name__ == "__main__":
                                  kernel=kernel , bios=bios, initrd=initrd, pflash=pflash,
                                  arch=qemu_arch , qemuOption=qemu_option,
                                  workingDir=workingDir , bkfile=bkFile , path=mugenPath,
-                                 sharedir='shared' , screen = screen))   
+                                 sharedir='shared' , screen = screen))
         targetQueue = Queue()
         combinations = combination()
         for target in test_target.test_list:
@@ -476,7 +506,7 @@ if __name__ == "__main__":
             if caseNum != 0:
                 if caseNum > 20:
                     count , id = 0 , 0
-                    os.system(f'ls {workingDir}splited_json/{target} || mkdir -p {workingDir}splited_json/{target}')
+                    os.system(f'ls {workingDir}splited_json/{target} 2>&1 >>/dev/null || mkdir -p {workingDir}splited_json/{target}')
                     target_path = f'{workingDir}splited_json/{target}'
                     for case in jsondata['cases']:
                         combinations.add_case(target , case['name'])
@@ -487,9 +517,10 @@ if __name__ == "__main__":
                             id += 1
                             count = 0
                             combinations.clear_one_testsuite(target)
-                    combinations.export_one_json(target , target_path , id)
-                    combinations.clear_one_testsuite(target)
-                    targetQueue.put([target+'_'+str(id)+'.json' , jsondata.get('add disk' , []) , jsondata.get("machine num" , 1) , jsondata.get("add network interface" , 0) , 0])
+                    if count != 0:
+                        combinations.export_one_json(target , target_path , id)
+                        combinations.clear_one_testsuite(target)
+                        targetQueue.put([target+'_'+str(id)+'.json' , jsondata.get('add disk' , []) , jsondata.get("machine num" , 1) , jsondata.get("add network interface" , 0) , 0])
                 else:
                     targetQueue.put([target , jsondata.get('add disk' , []) , jsondata.get("machine num" , 1) , jsondata.get("add network interface" , 0) , 0])
 
@@ -497,7 +528,7 @@ if __name__ == "__main__":
         for i in range(threadNum):
             dispathcers.append(Dispatcher(qemuVM=qemuVM[i] , targetQueue=targetQueue , tapQueue=tap , br_ip=bridge_ip , step = threadNum , runArg=runningArg))
             dispathcers[i].start()
-            time.sleep(0.5)
+            time.sleep(2)
 
         isAlive = True
         isEnd = False

@@ -117,13 +117,19 @@ function DNF_REMOVE() {
 
     if [ "$node" == 0 ]; then
         node_num=$(python3 ${OET_PATH}/libs/locallibs/read_conf.py node-num)
+        cat /etc/os-release | grep Eulaceura > /dev/null
+        if [ $? -eq 0 ]; then
+            exec_py=rpm_manage_eula.py
+        else
+            exec_py=rpm_manage.py
+        fi
 
         for node_id in $(seq 1 $node_num); do
-            python3 ${OET_PATH}/libs/locallibs/rpm_manage.py \
+            python3 ${OET_PATH}/libs/locallibs/$exec_py \
                 remove --node $node_id --pkgs "$pkg_list" --tempfile "$tmpfile"
         done
     else
-        python3 ${OET_PATH}/libs/locallibs/rpm_manage.py \
+        python3 ${OET_PATH}/libs/locallibs/$exec_py \
             remove --node $node --pkgs "$pkg_list" --tempfile "$tmpfile"
     fi
 
